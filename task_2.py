@@ -1,23 +1,22 @@
 import re
-import aiohttp
+import requests
 import matplotlib.pyplot as plt
-import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import reduce
 
 
-async def fetch_text(url):
-    """Asynchronously fetch text from the specified URL."""
-    async with aiohttp.ClientSession() as session:
-        response = await session.get(url)
-        if response.status == 200:
-            return await response.text()
-        else:
-            print(f"Failed to retrieve the text from the URL. Status: {
-                  response.status}")
-            return ""
+def fetch_text(url):
+    """Synchronously fetch text from the specified URL."""
+    response = requests.get(url)
+    if response.status_code == 200:
+        return response.text
+    else:
+        print(f"Failed to retrieve the text from the URL. Status: {
+              response.status_code}")
+        return ""
 
 
-async def map_reduce(text_chunk):
+def map_reduce(text_chunk):
     """Map function to count word occurrences in a given text chunk."""
     words = re.findall(r'\b\w+\b', text_chunk.lower())
     word_count = {}
@@ -49,20 +48,26 @@ def visualize_top_words(word_freq, top_n=10):
     plt.show()
 
 
-async def main(url):
+def main(url):
     """Main function to fetch, process, and visualize word frequency from a URL."""
-    text = await fetch_text(url)
+    text = fetch_text(url)
     if text:
         chunk_size = len(text) // 10
         chunks = [text[i:i + chunk_size]
                   for i in range(0, len(text), chunk_size)]
 
-        mapped_results = await asyncio.gather(*(map_reduce(chunk) for chunk in chunks))
-        reduced_result = reduce(reduce_word_counts, mapped_results)
+        with ThreadPoolExecutor() as executor:
+            future_to_chunk = {executor.submit(
+                map_reduce, chunk): chunk for chunk in chunks}
+            mapped_results = [future.result()
+                              for future in as_completed(future_to_chunk)]
+            reduced_result = reduce(reduce_word_counts, mapped_results)
+
         visualize_top_words(reduced_result)
     else:
         print("No text retrieved from the URL.")
 
+
 if __name__ == "__main__":
     url = "https://gutenberg.net.au/ebooks01/0100021.txt"
-    asyncio.run(main(url))
+    main(url)
